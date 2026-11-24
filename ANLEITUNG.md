@@ -47,6 +47,20 @@ Vorlage „Eigenes Programm (ZIP hochladen)“: Die ZIP braucht ein `Dockerfile`
 Die App übernimmt alle Dateien ins Repository (ohne `node_modules`, `.git`) und legt Pipeline und Compose-Vorlage dazu.
 Port im Container und Datenordner im Container trägst du wie bei den Vorlagen ein, Zugangsdaten als Umgebungsvariablen je Server.
 
+**Mehrere Container (z. B. App + Telefon):** Bringt die ZIP eine eigene `deploy/compose.template.yml` mit,
+wird sie unverändert übernommen. Platzhalter, die die Pipeline ersetzt:
+
+| Platzhalter | wird zu |
+|---|---|
+| `__IMAGE__` | Haupt-Image mit Tag (Pflicht) |
+| `__IMAGE_BASE__` / `__TAG__` | Image ohne Tag / nur der Tag – für weitere Images: `__IMAGE_BASE__-telefon:__TAG__` |
+| `__APP_ENV__` | `test` oder `prod` |
+
+`${HOST_PORT}`, `${VOLUME_NAME}` und die Umgebungsvariablen aus dem Formular setzt Portainer ein.
+Weitere Images stehen in `deploy/images.txt`, je Zeile `<name> <ordner>` (z. B. `telefon telefon`);
+die Pipeline baut sie aus dem Dockerfile im Ordner mit demselben Tag wie das Haupt-Image – Test und
+Produktiv bekommen so immer zusammenpassende Stände. Auch `network_mode: host` ist in der eigenen Vorlage möglich.
+
 ## Die App selbst über GitHub aktualisieren
 
 Einstellungen → „Diese App selbst“ → Server wählen, auf dem sie läuft. Die App

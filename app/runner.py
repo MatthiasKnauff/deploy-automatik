@@ -462,7 +462,10 @@ def apply_settings(pid, changes, keys_changed):
     def go():
         c = Ctx(pid)
         try:
-            if keys_changed and c.p.get("files_commit") and c.p.get("kind") != "self":
+            if keys_changed and c.p.get("eigene_compose"):
+                c.log("Eigene Compose-Vorlage aus der ZIP – sie bleibt unverändert. Neue Variablen gehen an den Stack; "
+                      "in deploy/compose.template.yml müssen sie als ${NAME} vorkommen.")
+            elif keys_changed and c.p.get("files_commit") and c.p.get("kind") != "self":
                 sha = c.gh.commit_files(c.owner, c.slug, {"deploy/compose.template.yml": compose_template(c.p)},
                                         "Umgebungsvariablen geändert (Compose-Vorlage)")
                 c.log(f"Compose-Vorlage mit neuen Variablen ins Repository geschrieben ({sha[:7]}) – "

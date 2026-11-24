@@ -3,7 +3,7 @@
 services:
   deploy-automatik:
     build: .
-    image: deploy-automatik:1.2.5
+    image: deploy-automatik:1.3.0
     container_name: deploy-automatik
     restart: unless-stopped
     ports:

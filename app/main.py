@@ -181,6 +181,7 @@ def new_project():
             for e in envs.values():
                 e.update(volume_name="", data_path="")
         upload_path = ""
+        eigene_compose = False
         if f.get("template") == "zip":
             up = request.files.get("upload")
             if not up or not up.filename:
@@ -190,7 +191,8 @@ def new_project():
                 upload_path = os.path.join(db.DATA_DIR, "uploads", f"{int(time.time())}-{slug}.zip")
                 up.save(upload_path)
                 try:
-                    _, notes = read_zip(upload_path)
+                    zip_dateien, notes = read_zip(upload_path)
+                    eigene_compose = "deploy/compose.template.yml" in zip_dateien
                 except ValueError as e:
                     errors.append(str(e))
                     os.remove(upload_path)
@@ -202,7 +204,7 @@ def new_project():
             "name": name, "slug": slug, "owner": owner, "description": f.get("description", "").strip(),
             "private": f.get("visibility") == "private", "template": f.get("template", "python"),
             "container_port": cport, "volume_path": volume, "test": envs["test"], "prod": envs["prod"],
-            "upload": upload_path,
+            "upload": upload_path, "eigene_compose": eigene_compose,
         }
         pid = db.create_project(name, slug, data, runner.STEPS)
         db.add_log(pid, f"Projekt angelegt: {owner}/{slug}")

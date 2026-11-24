@@ -7,7 +7,9 @@ IMAGE="$2"
 BRANCH="deploy-${ZIEL}"
 OUT="${RUNNER_TEMP:-/tmp}/docker-compose.yml"
 
-sed -e "s|__IMAGE__|${IMAGE}|g" -e "s|__APP_ENV__|${ZIEL}|g" deploy/compose.template.yml > "$OUT"
+# __IMAGE__ = Image mit Tag, __IMAGE_BASE__ / __TAG__ = einzeln (für weitere Images: __IMAGE_BASE__-name:__TAG__)
+sed -e "s|__IMAGE__|${IMAGE}|g" -e "s|__IMAGE_BASE__|${IMAGE%:*}|g" -e "s|__TAG__|${IMAGE##*:}|g" \
+    -e "s|__APP_ENV__|${ZIEL}|g" deploy/compose.template.yml > "$OUT"
 
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

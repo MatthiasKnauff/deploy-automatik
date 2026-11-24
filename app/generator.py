@@ -41,7 +41,19 @@ def read_zip(path_or_file):
     if "Dockerfile" not in files:
         raise ValueError("In der ZIP fehlt ein Dockerfile (im obersten Ordner). Daraus baut die Pipeline das Image.")
     notes = [f"{len(files)} Dateien übernommen"] + ([f"{skipped} ausgelassen (z. B. node_modules, .git)"] if skipped else [])
+    eigene = files.get(EIGENE_COMPOSE)
+    if eigene is not None:
+        if not isinstance(eigene, str) or "__IMAGE__" not in eigene:
+            raise ValueError(f"{EIGENE_COMPOSE} in der ZIP muss __IMAGE__ als Platzhalter für das Image enthalten.")
+        notes.append("eigene Compose-Vorlage wird übernommen")
+    if isinstance(files.get("deploy/images.txt"), str):
+        namen = [z.split()[0] for z in files["deploy/images.txt"].splitlines() if z.strip() and not z.lstrip().startswith("#")]
+        if namen:
+            notes.append("weitere Images: " + ", ".join(namen))
     return files, notes
+
+
+EIGENE_COMPOSE = "deploy/compose.template.yml"
 
 # ------------------------------------------------------------------ Pipeline
 WORKFLOW = r"""name: Build und Bereitstellung
@@ -96,6 +108,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Weitere Images (deploy/images.txt)
+        if: hashFiles('deploy/images.txt') != ''
+        run: |
+          # je Zeile: <name> <ordner>  →  Image <haupt-image>-<name> aus dem Dockerfile im Ordner
+          grep -vE '^[[:space:]]*(#|$)' deploy/images.txt | while read -r NAME ORDNER; do
+            ZIEL="${{ env.IMAGE }}-${NAME}"
+            echo "::group::${ZIEL}"
+            docker buildx build --push \
+              -t "${ZIEL}:${{ steps.meta.outputs.tag }}" -t "${ZIEL}:${{ steps.meta.outputs.kanal }}" \
+              --build-arg APP_VERSION=${{ steps.meta.outputs.version }} \
+              --cache-from "type=registry,ref=${ZIEL}:buildcache" \
+              --cache-to "type=registry,ref=${ZIEL}:buildcache,mode=max" \
+              "${ORDNER:-$NAME}"
+            echo "::endgroup::"
+          done
+
       - name: Server-Zweig aktualisieren (Portainer holt sich das automatisch)
         run: bash .github/scripts/deploy-branch.sh "${{ steps.meta.outputs.ziel }}" "${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}"
 
@@ -149,7 +177,9 @@ IMAGE="$2"
 BRANCH="deploy-${ZIEL}"
 OUT="${RUNNER_TEMP:-/tmp}/docker-compose.yml"
 
-sed -e "s|__IMAGE__|${IMAGE}|g" -e "s|__APP_ENV__|${ZIEL}|g" deploy/compose.template.yml > "$OUT"
+# __IMAGE__ = Image mit Tag, __IMAGE_BASE__ / __TAG__ = einzeln (für weitere Images: __IMAGE_BASE__-name:__TAG__)
+sed -e "s|__IMAGE__|${IMAGE}|g" -e "s|__IMAGE_BASE__|${IMAGE%:*}|g" -e "s|__TAG__|${IMAGE##*:}|g" \
+    -e "s|__APP_ENV__|${ZIEL}|g" deploy/compose.template.yml > "$OUT"
 
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -447,12 +477,14 @@ def generate(p, owner, upload=None):
     else:
         files = {"python": _python, "node": _node, "static": _static}[p["template"]](p)
     own_readme = "README.md" in files
+    eigene_compose = p["template"] == "zip" and isinstance(files.get(EIGENE_COMPOSE), str)
     files.update({
         ".github/workflows/deploy.yml": WORKFLOW,
         ".github/scripts/meta.sh": META_SH,
         ".github/scripts/deploy-branch.sh": DEPLOY_BRANCH_SH,
-        "deploy/compose.template.yml": compose_template(p),
     })
+    if not eigene_compose:
+        files[EIGENE_COMPOSE] = compose_template(p)
     files.setdefault(".gitignore", "__pycache__/\n*.pyc\nnode_modules/\n.env\n")
     files["DEPLOY.md" if own_readme else "README.md"] = readme(p, owner)
     return files

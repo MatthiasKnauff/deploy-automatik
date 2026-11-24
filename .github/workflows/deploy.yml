@@ -50,6 +50,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Weitere Images (deploy/images.txt)
+        if: hashFiles('deploy/images.txt') != ''
+        run: |
+          # je Zeile: <name> <ordner>  →  Image <haupt-image>-<name> aus dem Dockerfile im Ordner
+          grep -vE '^[[:space:]]*(#|$)' deploy/images.txt | while read -r NAME ORDNER; do
+            ZIEL="${{ env.IMAGE }}-${NAME}"
+            echo "::group::${ZIEL}"
+            docker buildx build --push \
+              -t "${ZIEL}:${{ steps.meta.outputs.tag }}" -t "${ZIEL}:${{ steps.meta.outputs.kanal }}" \
+              --build-arg APP_VERSION=${{ steps.meta.outputs.version }} \
+              --cache-from "type=registry,ref=${ZIEL}:buildcache" \
+              --cache-to "type=registry,ref=${ZIEL}:buildcache,mode=max" \
+              "${ORDNER:-$NAME}"
+            echo "::endgroup::"
+          done
+
       - name: Server-Zweig aktualisieren (Portainer holt sich das automatisch)
         run: bash .github/scripts/deploy-branch.sh "${{ steps.meta.outputs.ziel }}" "${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}"
 
