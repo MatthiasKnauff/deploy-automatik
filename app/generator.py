@@ -4,7 +4,44 @@ TEMPLATES = {
     "python": "Python (Flask)",
     "node": "Node.js (Express)",
     "static": "Statische Website (nginx)",
+    "zip": "Eigenes Programm (ZIP hochladen)",
 }
+
+SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".idea", ".vscode"}
+MAX_ZIP = 50 * 1024 * 1024
+
+
+def read_zip(path_or_file):
+    """ZIP einlesen: gemeinsamen Oberordner abschneiden, Text als str, alles andere als bytes.
+    Gibt (Dateien, Hinweise) zurück; ohne Dockerfile -> ValueError."""
+    import zipfile
+    try:
+        z = zipfile.ZipFile(path_or_file)
+    except zipfile.BadZipFile:
+        raise ValueError("Die Datei ist keine gültige ZIP.")
+    names = [n for n in z.namelist() if not n.endswith("/") and not n.startswith("__MACOSX/")]
+    if not names:
+        raise ValueError("Die ZIP ist leer.")
+    if sum(z.getinfo(n).file_size for n in names) > MAX_ZIP:
+        raise ValueError("Die ZIP ist entpackt größer als 50 MB.")
+    first = {n.split("/", 1)[0] for n in names}
+    prefix = (next(iter(first)) + "/") if len(first) == 1 and all("/" in n for n in names) else ""
+    files, skipped = {}, 0
+    for n in names:
+        rel = n[len(prefix):]
+        parts = rel.split("/")
+        if ".." in parts or any(p in SKIP_DIRS for p in parts[:-1]) or parts[-1] in (".DS_Store", "Thumbs.db"):
+            skipped += 1
+            continue
+        raw = z.read(n)
+        try:
+            files[rel] = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            files[rel] = raw
+    if "Dockerfile" not in files:
+        raise ValueError("In der ZIP fehlt ein Dockerfile (im obersten Ordner). Daraus baut die Pipeline das Image.")
+    notes = [f"{len(files)} Dateien übernommen"] + ([f"{skipped} ausgelassen (z. B. node_modules, .git)"] if skipped else [])
+    return files, notes
 
 # ------------------------------------------------------------------ Pipeline
 WORKFLOW = r"""name: Build und Bereitstellung
@@ -167,17 +204,12 @@ def compose_template(p):
     return "\n".join(lines) + "\n"
 
 
-# Named Volume, das auf dem Server in einem festen Ordner liegt (Schema des Servers, z. B. /docker/<name>).
-# Name und Ordner kommen aus dem Portainer-Stack (VOLUME_NAME, DATA_PATH) – je Server und Test/Produktiv getrennt.
+# Named Volume mit festem Namen (z. B. zuhause-test / zuhause-prod) – liegt im Docker-Datenordner des Servers
+# (bei dir /docker/volumes/<name>/_data). Der Name kommt aus dem Portainer-Stack (VOLUME_NAME).
 VOLUME_BLOCK = [
     "volumes:",
     "  daten:",
     "    name: ${VOLUME_NAME}",
-    "    driver: local",
-    "    driver_opts:",
-    "      type: none",
-    "      o: bind",
-    "      device: ${DATA_PATH}",
 ]
 
 
@@ -214,8 +246,12 @@ def generate_self(source_dir):
                     if n.endswith(".pyc"):
                         continue
                     path = os.path.join(root, n)
-                    with open(path, encoding="utf-8") as fh:
-                        files[os.path.relpath(path, source_dir)] = fh.read()
+                    with open(path, "rb") as fh:
+                        raw = fh.read()
+                    try:
+                        files[os.path.relpath(path, source_dir)] = raw.decode("utf-8")
+                    except UnicodeDecodeError:
+                        files[os.path.relpath(path, source_dir)] = raw
         elif os.path.exists(full):
             with open(full, encoding="utf-8") as fh:
                 files[entry] = fh.read()
@@ -375,7 +411,7 @@ def readme(p, owner):
     t, pr = p["test"], p["prod"]
     def ziel(e):
         url = f"https://{e['domain']}" if e.get("domain") else f"http://{e['host']}:{e['host_port']}"
-        data = f" · Daten: `{e['data_path']}`" if e.get("data_path") else ""
+        data = f" · Volume `{e['volume_name']}`" if e.get("volume_name") else ""
         return f"{e['server_name']} · Port {e['host_port']} · {url}{data}"
     return f"""# {p['name']}
 
@@ -405,14 +441,18 @@ Eingerichtet mit der Deploy-Automatik.
 """
 
 
-def generate(p, owner):
-    files = {"python": _python, "node": _node, "static": _static}[p["template"]](p)
+def generate(p, owner, upload=None):
+    if p["template"] == "zip":
+        files, _ = read_zip(upload)
+    else:
+        files = {"python": _python, "node": _node, "static": _static}[p["template"]](p)
+    own_readme = "README.md" in files
     files.update({
         ".github/workflows/deploy.yml": WORKFLOW,
         ".github/scripts/meta.sh": META_SH,
         ".github/scripts/deploy-branch.sh": DEPLOY_BRANCH_SH,
         "deploy/compose.template.yml": compose_template(p),
-        "README.md": readme(p, owner),
-        ".gitignore": "__pycache__/\n*.pyc\nnode_modules/\n.env\n",
     })
+    files.setdefault(".gitignore", "__pycache__/\n*.pyc\nnode_modules/\n.env\n")
+    files["DEPLOY.md" if own_readme else "README.md"] = readme(p, owner)
     return files

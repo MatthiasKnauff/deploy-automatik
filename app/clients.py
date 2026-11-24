@@ -1,6 +1,6 @@
 """Schnittstellen zu GitHub, Portainer und Nginx Proxy Manager."""
+import base64
 import os
-import re
 import time
 
 import requests
@@ -75,8 +75,15 @@ class GitHub:
         """Alle Dateien in einem einzigen Commit hochladen."""
         parent = self.head(owner, name, branch)
         base_tree = self._req("GET", f"/repos/{owner}/{name}/git/commits/{parent}").json()["tree"]["sha"]
-        tree = [{"path": p, "mode": "100755" if p.endswith(".sh") else "100644", "type": "blob", "content": c}
-                for p, c in files.items()]
+        tree = []
+        for p, c in files.items():
+            item = {"path": p, "mode": "100755" if p.endswith(".sh") else "100644", "type": "blob"}
+            if isinstance(c, bytes):  # Bilder u. ä. als eigener Blob (Base64)
+                item["sha"] = self._req("POST", f"/repos/{owner}/{name}/git/blobs",
+                                        json={"content": base64.b64encode(c).decode(), "encoding": "base64"}).json()["sha"]
+            else:
+                item["content"] = c
+            tree.append(item)
         tree_sha = self._req("POST", f"/repos/{owner}/{name}/git/trees",
                              json={"base_tree": base_tree, "tree": tree}).json()["sha"]
         commit = self._req("POST", f"/repos/{owner}/{name}/git/commits",
@@ -121,18 +128,6 @@ def next_version(tag):
 
 # ================================================================== Portainer
 HELPER_IMAGE = ("docker", "27-cli")
-SAFE_PATH = re.compile(r"/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+")
-
-
-def path_ok(path):
-    """Absoluter Pfad mit mindestens zwei Ebenen (also nie direkt /docker oder /), ohne '..'."""
-    return bool(path and SAFE_PATH.fullmatch(path) and ".." not in path.split("/"))
-
-
-def path_root(path):
-    return "/" + path.strip("/").split("/")[0]
-
-
 def _docker_logs(raw):
     """Docker-Logstrom (8-Byte-Rahmen) in Text umwandeln."""
     out, i = [], 0
@@ -237,10 +232,9 @@ class Portainer:
         self._req("DELETE", f"/api/endpoints/{endpoint_id}/docker/containers/{name}",
                   params={"force": "true"}, ok=(204, 404))
 
-    def ensure_dir(self, endpoint_id, path):
-        root = path_root(path)
-        self.run_helper(endpoint_id, "deploy-automatik-ordner", 'mkdir -p "$ZIEL"', [f"{root}:{root}"],
-                        env={"ZIEL": path})
+    def docker_root(self, endpoint_id):
+        """Docker-Datenordner des Servers (bei dir /docker) – Named Volumes liegen darunter in volumes/<name>/_data."""
+        return self._req("GET", f"/api/endpoints/{endpoint_id}/docker/info").json().get("DockerRootDir", "")
 
     @staticmethod
     def stack_body(name, repo_url, ref, env, auth=None, interval="1m"):

@@ -2,14 +2,15 @@
 import os
 import re
 import secrets
+import time
 from functools import wraps
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import db, runner, schema
-from .clients import ApiError, GitHub, Portainer, ProxyManager, next_version, path_ok
-from .generator import TEMPLATES
+from . import db, runner
+from .clients import ApiError, GitHub, Portainer, ProxyManager, next_version
+from .generator import TEMPLATES, read_zip
 from .version import APP_VERSION
 
 db.init()
@@ -166,13 +167,10 @@ def new_project():
             except ValueError as e:
                 errors.append(f"{label}: {e}")
                 env = {}
-            data_path = f.get(f"{which}_data_path", "").strip().rstrip("/")
-            if f.get("volume_path", "").strip() and not path_ok(data_path):
-                errors.append(f"{label}: Datenordner auf dem Server ungültig (z. B. /docker/{slug}-{which}).")
             envs[which] = {"server_id": sid, "server_name": srv["name"] if srv else "",
                            "host": srv["host"] if srv else "", "host_port": hport,
-                           "domain": domain, "env": env,
-                           "volume_name": f"{slug}-{which}", "data_path": data_path}
+                           "domain": domain, "env": env, "volume_name": f"{slug}-{which}",
+                           "data_path": _volume_location(srv, f"{slug}-{which}") if srv else ""}
         if f.get("test_server") and f.get("test_server") == f.get("prod_server") \
                 and f.get("test_port") == f.get("prod_port"):
             errors.append("Test und Produktiv brauchen auf demselben Server verschiedene Ports.")
@@ -182,6 +180,20 @@ def new_project():
         if not volume:
             for e in envs.values():
                 e.update(volume_name="", data_path="")
+        upload_path = ""
+        if f.get("template") == "zip":
+            up = request.files.get("upload")
+            if not up or not up.filename:
+                errors.append("Bitte die ZIP mit dem Programm auswählen.")
+            elif not errors:
+                os.makedirs(os.path.join(db.DATA_DIR, "uploads"), exist_ok=True)
+                upload_path = os.path.join(db.DATA_DIR, "uploads", f"{int(time.time())}-{slug}.zip")
+                up.save(upload_path)
+                try:
+                    _, notes = read_zip(upload_path)
+                except ValueError as e:
+                    errors.append(str(e))
+                    os.remove(upload_path)
         if errors:
             for e in errors:
                 flash(e, "fehler")
@@ -190,9 +202,12 @@ def new_project():
             "name": name, "slug": slug, "owner": owner, "description": f.get("description", "").strip(),
             "private": f.get("visibility") == "private", "template": f.get("template", "python"),
             "container_port": cport, "volume_path": volume, "test": envs["test"], "prod": envs["prod"],
+            "upload": upload_path,
         }
         pid = db.create_project(name, slug, data, runner.STEPS)
         db.add_log(pid, f"Projekt angelegt: {owner}/{slug}")
+        if upload_path:
+            db.add_log(pid, "ZIP: " + ", ".join(notes))
         runner.start(pid)
         return redirect(url_for("project", pid=pid))
     return render_template("new.html", servers=servers, owner=owner, f=f)
@@ -357,22 +372,27 @@ def portainer_endpoints():
         return jsonify(ok=False, error=str(e))
 
 
-@app.get("/api/volume-vorschlag")
+def _volume_location(srv, name):
+    """Wo das Named Volume auf dem Server landet (Docker-Datenordner/volumes/<name>/_data)."""
+    try:
+        root = Portainer(srv["url"], srv["api_key"], srv["verify_tls"]).docker_root(srv["endpoint_id"])
+    except Exception:  # noqa: BLE001
+        return ""
+    return f"{root.rstrip('/')}/volumes/{name}/_data" if root else ""
+
+
+@app.get("/api/volume-ort")
 @login_required
-def volume_proposal():
+def volume_location():
     srv = db.server(int(request.args.get("server") or 0))
     name = request.args.get("name", "").strip()
     if not srv or not name:
-        return jsonify(ok=False, error="Server und Name fehlen")
-    try:
-        vols = Portainer(srv["url"], srv["api_key"], srv["verify_tls"]).volumes(srv["endpoint_id"])
-    except Exception as e:  # noqa: BLE001
-        return jsonify(ok=True, path=schema.apply(schema.FALLBACK, name),
-                       hint=f"Server nicht erreichbar ({e}) – Standard vorgeschlagen.")
-    tpl, n, example = schema.detect(vols)
-    hint = (f"Schema von {srv['name']}: {tpl} (aus {n} Volume{'s' if n != 1 else ''}, z. B. {example})" if n
-            else f"Auf {srv['name']} kein Volume mit festem Ordner gefunden – Standard {tpl}.")
-    return jsonify(ok=True, path=schema.apply(tpl, name), hint=hint, schema=tpl)
+        return jsonify(ok=False)
+    loc = _volume_location(srv, name)
+    if not loc:
+        return jsonify(ok=True, hint=f"Volume „{name}“ – Docker-Datenordner von {srv['name']} nicht abfragbar.")
+    warn = "" if loc.startswith("/docker/") else " – Achtung: Docker-Datenordner ist hier nicht /docker"
+    return jsonify(ok=True, hint=f"Volume „{name}“ → {loc}{warn}")
 
 
 # ---------------------------------------------------------- App selbst
@@ -398,11 +418,8 @@ def self_setup():
         except (ValueError, AssertionError):
             errors.append("Port ungültig.")
             port = 0
-        data_path = f.get("data_path", "").strip().rstrip("/")
         if not srv:
             errors.append("Server wählen.")
-        if not path_ok(data_path):
-            errors.append("Datenordner ungültig (z. B. /docker/deploy-automatik).")
         if errors:
             for e in errors:
                 flash(e, "fehler")
@@ -412,7 +429,8 @@ def self_setup():
                 "private": f.get("visibility") == "private", "template": "self", "container_port": 8000,
                 "volume_path": "/data", "test": None,
                 "prod": {"server_id": srv["id"], "server_name": srv["name"], "host": srv["host"], "host_port": port,
-                         "domain": "", "env": {}, "volume_name": runner.SELF_NAME, "data_path": data_path}}
+                         "domain": "", "env": {}, "volume_name": runner.SELF_NAME,
+                         "data_path": _volume_location(srv, runner.SELF_NAME)}}
         pid = db.create_project("Deploy-Automatik", slug, data, runner.SELF_STEPS)
         db.add_log(pid, f"Umstieg auf GitHub/Portainer angelegt: {owner}/{slug}")
         runner.start(pid)
@@ -425,5 +443,5 @@ def health():
     return {"status": "ok", "version": APP_VERSION}
 
 
-runner.poller()
 runner.resume()
+runner.poller()

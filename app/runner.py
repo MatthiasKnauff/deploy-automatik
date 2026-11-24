@@ -6,7 +6,7 @@ import time
 import traceback
 
 from . import db
-from .clients import ApiError, GitHub, Portainer, ProxyManager, path_root
+from .clients import ApiError, GitHub, Portainer, ProxyManager
 from .generator import generate, generate_self
 
 SELF_NAME = "deploy-automatik"
@@ -176,17 +176,14 @@ def step_check(c):
                 problems.append(f"{label} {srv['name']}: Port {e['host_port']} ist schon von „{owner_of_port}“ belegt.")
             if is_self and not pt.container(ep, SELF_NAME):
                 problems.append(f"Auf {srv['name']} läuft kein Container „{SELF_NAME}“ – ist das der richtige Server?")
-            if e.get("data_path"):
-                vol = pt.volume(ep, e["volume_name"])
-                if vol and (vol.get("Options") or {}).get("device") != e["data_path"]:
-                    problems.append(f"{label}: Volume {e['volume_name']} gibt es schon mit einem anderen Ordner.")
+            if e.get("volume_name") and not is_self and pt.volume(ep, e["volume_name"]):
+                problems.append(f"{label} {srv['name']}: Volume {e['volume_name']} gibt es schon – "
+                                "es würden fremde Daten übernommen.")
         except ApiError as ex:
             problems.append(f"{label}: {ex}")
     if c.p.get("test") and c.p["test"]["server_id"] == c.p["prod"]["server_id"]:
         if int(c.p["test"]["host_port"]) == int(c.p["prod"]["host_port"]):
             problems.append("Test und Produktiv laufen auf demselben Server mit demselben Port.")
-        if c.p["test"].get("data_path") and c.p["test"]["data_path"] == c.p["prod"].get("data_path"):
-            problems.append("Test und Produktiv haben denselben Datenordner.")
     domains = [c.p[w]["domain"] for w in _which(c) if c.p[w].get("domain")]
     if domains:
         try:
@@ -217,8 +214,10 @@ def step_files(c):
         files = generate_self(SOURCE_DIR)
         sha = c.gh.commit_files(c.owner, c.slug, files, "Deploy-Automatik: Programmcode und Pipeline")
     else:
-        files = generate(c.p, c.owner)
-        sha = c.gh.commit_files(c.owner, c.slug, files, "Start: App-Gerüst, Dockerfile und Pipeline")
+        files = generate(c.p, c.owner, c.p.get("upload"))
+        msg = "Programm übernommen, Pipeline eingerichtet" if c.p["template"] == "zip" \
+            else "Start: App-Gerüst, Dockerfile und Pipeline"
+        sha = c.gh.commit_files(c.owner, c.slug, files, msg)
     c.save(files_commit=sha)
     return f"{len(files)} Dateien, Commit {sha[:7]}"
 
@@ -267,8 +266,8 @@ def _registry(c, pt, srv):
 
 def _stack_env(e):
     env = {"HOST_PORT": e["host_port"], **e.get("env", {})}
-    if e.get("data_path"):
-        env.update(VOLUME_NAME=e["volume_name"], DATA_PATH=e["data_path"])
+    if e.get("volume_name"):
+        env["VOLUME_NAME"] = e["volume_name"]
     return env
 
 
@@ -284,15 +283,12 @@ def _stack(c, which):
         c.save(**{key: existing["Id"]})
         return f"Stack {name} war schon vorhanden (Id {existing['Id']})"
     login, token = _registry(c, pt, srv)
-    if e.get("data_path"):
-        pt.ensure_dir(srv["endpoint_id"], e["data_path"])
-        c.log(f"{srv['name']}: Datenordner {e['data_path']} bereit")
     auth = (login, token) if c.p["private"] else None
     st = pt.create_git_stack(srv["endpoint_id"], name, c.p["clone_url"], f"refs/heads/deploy-{which}",
                              _stack_env(e), auth)
     c.save(**{key: st.get("Id")})
     url = f"http://{srv['host']}:{e['host_port']}"
-    data = f", Daten in {e['data_path']}" if e.get("data_path") else ""
+    data = f", Daten im Volume {e['volume_name']}" if e.get("volume_name") else ""
     return f"Stack {name} auf {srv['name']} läuft – {url}{data} (Portainer prüft jede Minute auf Neues)"
 
 
@@ -337,11 +333,11 @@ docker stop -t 20 deploy-automatik || { log "Anhalten fehlgeschlagen"; exit 1; }
 mkdir -p "$ZIEL"
 KOPIERT=0
 if [ -z "$(ls -A "$ZIEL")" ]; then
-  log "Daten nach $ZIEL kopieren"
+  log "Daten ins neue Volume kopieren"
   KOPIERT=1
   cp -a /data/. "$ZIEL"/ || { log "Kopieren fehlgeschlagen"; find "$ZIEL" -mindepth 1 -delete; docker start deploy-automatik; exit 1; }
 else
-  log "$ZIEL ist nicht leer – vorhandene Daten werden verwendet"
+  log "neues Volume ist nicht leer – vorhandene Daten werden verwendet"
 fi
 docker rename deploy-automatik deploy-automatik-alt
 printf '%s' "$BODY" > /tmp/body.json
@@ -400,14 +396,13 @@ def step_self_switch(c):
     auth = (login, token) if c.p["private"] else None
     body = Portainer.stack_body(SELF_NAME, c.p["clone_url"], "refs/heads/deploy-prod", _stack_env(e), auth)
     url1, url2 = pt.stack_urls(ep)
-    root = path_root(e["data_path"])
     db.set_step(c.pid, "self_switch", "läuft",
                 "Umstieg läuft – die Oberfläche ist gleich etwa eine Minute weg und kommt dann von selbst wieder.")
-    c.log(f"Umstieg gestartet: Daten nach {e['data_path']}, danach Neustart als Portainer-Stack")
+    c.log(f"Umstieg gestartet: Daten ins Volume {e['volume_name']}, danach Neustart als Portainer-Stack")
     pt.run_helper(ep, HELPER_SWITCH, SWITCH_SCRIPT,
-                  binds=["/var/run/docker.sock:/var/run/docker.sock", f"{root}:{root}"],
+                  binds=["/var/run/docker.sock:/var/run/docker.sock", f"{e['volume_name']}:/neu"],
                   env={"KEY": srv["api_key"], "URL1": url1, "URL2": url2, "BODY": json.dumps(body),
-                       "ZIEL": e["data_path"], "TLS": "" if srv["verify_tls"] else "--no-check-certificate"},
+                       "ZIEL": "/neu", "TLS": "" if srv["verify_tls"] else "--no-check-certificate"},
                   volumes_from=[SELF_NAME], wait=False)
     time.sleep(300)  # normalerweise wird dieser Container vorher angehalten
     raise ApiError(f"Umstieg hat nicht stattgefunden – Protokoll des Containers {HELPER_SWITCH} in Portainer ansehen.")
@@ -447,21 +442,19 @@ def _verify_switch(pid):
 
 
 def resume():
-    """Nach einem Neustart unterbrochene Schritte fortsetzen."""
-    def go():
-        time.sleep(3)
-        for p in db.projects():
-            for st in db.steps(p["id"]):
-                if st["status"] != "läuft":
-                    continue
-                if st["key"] == "self_switch":
-                    _verify_switch(p["id"])
-                else:
-                    db.set_step(p["id"], st["key"], "offen", "")
-                    db.add_log(p["id"], "Nach Neustart fortgesetzt")
-                    start(p["id"])
-                break
-    threading.Thread(target=go, daemon=True).start()
+    """Beim Start: Schritte, die beim letzten Beenden mitten im Lauf waren, fortsetzen.
+    Läuft vor dem ersten Aufruf der Oberfläche, damit nichts mit neu gestarteten Läufen kollidiert."""
+    for p in db.projects():
+        for st in db.steps(p["id"]):
+            if st["status"] != "läuft":
+                continue
+            if st["key"] == "self_switch":
+                threading.Thread(target=_verify_switch, args=(p["id"],), daemon=True).start()
+            else:
+                db.set_step(p["id"], st["key"], "offen", "")
+                db.add_log(p["id"], "Nach Neustart fortgesetzt")
+                start(p["id"])
+            break
 
 
 STEP_FUNCS = {

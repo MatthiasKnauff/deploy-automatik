@@ -25,29 +25,34 @@ Alle Zugänge liegen verschlüsselt im Volume `deploy-automatik-daten`.
 
 ## 3. Neues Projekt
 
-Name, Vorlage (Python, Node.js oder statisch), Test- und Produktivserver mit Port und optional Domain.
+Name, Vorlage (Python, Node.js, statisch oder eigenes Programm als ZIP), Test- und Produktivserver mit Port und optional Domain.
 Die App arbeitet die Schritte ab und zeigt jeden einzeln an:
 
-1. Vorabprüfung – Repo-Name frei, Ports frei, Domains frei (vorher wird nichts angelegt)
+1. Vorabprüfung – Repo-Name, Ports, Volumes und Domains frei (vorher wird nichts angelegt)
 2. Repository mit Startprogramm, Dockerfile und Pipeline
 3. erster Build in GitHub
 4. Testserver: Portainer-Stack + Proxy-Host
 5. wartet auf deine Freigabe (Release in GitHub, Knopf „vX.Y.Z freigeben“ auf der Projektseite)
 6. Produktivserver: Portainer-Stack + Proxy-Host
 
-## Datenordner (Named Volumes unter /docker)
+## Daten (Named Volumes)
 
-Jede App bekommt ein Named Volume, das auf dem Server in einem festen Ordner liegt. Die App liest über
-Portainer die vorhandenen Volumes des Zielservers, erkennt das Schema (z. B. `/docker/<projekt>/<volume>`)
-und schlägt den Ordner danach vor – mit `-test` bzw. `-prod` im Namen. Der Vorschlag steht im Formular
-und lässt sich ändern. Den Ordner legt die App beim Einrichten selbst an.
+Jede App bekommt ein Named Volume mit festem Namen, für Test und Produktiv getrennt (`<name>-test`, `<name>-prod`).
+Es liegt im Docker-Datenordner des Servers, bei dir also unter `/docker/volumes/<name>/_data`.
+Das Formular zeigt beim Anlegen, wo genau. Ist der Docker-Datenordner auf einem Server nicht `/docker`, steht dort ein Hinweis.
+
+## Eigenes Programm hochladen
+
+Vorlage „Eigenes Programm (ZIP hochladen)“: Die ZIP braucht ein `Dockerfile` im obersten Ordner.
+Die App übernimmt alle Dateien ins Repository (ohne `node_modules`, `.git`) und legt Pipeline und Compose-Vorlage dazu.
+Port im Container und Datenordner im Container trägst du wie bei den Vorlagen ein, Zugangsdaten als Umgebungsvariablen je Server.
 
 ## Die App selbst über GitHub aktualisieren
 
 Einstellungen → „Diese App selbst“ → Server wählen, auf dem sie läuft. Die App
 1. legt das Repository `deploy-automatik` mit ihrem Programmcode und derselben Pipeline an,
 2. trägt die laufende Version als erste Freigabe ein,
-3. hält die von Hand gestartete Instanz an, kopiert die Daten (Zugänge, Projekte) in den Datenordner
+3. hält die von Hand gestartete Instanz an, kopiert die Daten (Zugänge, Projekte) ins Volume `deploy-automatik`
    und startet sich als Portainer-Stack neu (etwa eine Minute weg).
 
 Klappt der Stack nicht, startet die alte Instanz automatisch wieder. Danach kommt jede neue Version

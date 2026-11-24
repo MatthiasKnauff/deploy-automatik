@@ -5,7 +5,7 @@
   <span>GitHub-Repository</span><span>Pipeline</span><span>erster Build</span><span>Testserver + Proxy</span><span>Freigabe</span><span>Produktivserver + Proxy</span>
 </div>
 
-<form method="post">
+<form method="post" enctype="multipart/form-data">
 <div class="panel">
   <div class="grid2">
     <div>
@@ -22,7 +22,12 @@
       <select name="template" id="template">
         {% for k, v in TEMPLATES.items() %}<option value="{{ k }}" {{ 'selected' if f.get('template') == k }}>{{ v }}</option>{% endfor %}
       </select>
-      <div class="hint">Ein kleines lauffähiges Gerüst mit Dockerfile – der eigentliche Inhalt kommt danach ins Repository.</div>
+      <div class="hint" id="tplhint">Ein kleines lauffähiges Gerüst mit Dockerfile – der eigentliche Inhalt kommt danach ins Repository.</div>
+      <div id="uploadbox" style="display:none">
+        <label>ZIP mit dem Programm</label>
+        <input type="file" name="upload" accept=".zip,application/zip">
+        <div class="hint">Braucht ein Dockerfile im obersten Ordner. node_modules und .git werden ausgelassen. Pipeline, Compose-Vorlage und Anleitung legt die App dazu.</div>
+      </div>
       <div class="grid2" style="gap:12px">
         <div><label>Port im Container</label><input name="container_port" id="cport" value="{{ f.get('container_port','8000') }}" inputmode="numeric"></div>
         <div><label>Datenordner im Container</label><input name="volume_path" value="{{ f.get('volume_path','/data') }}"></div>
@@ -53,9 +58,8 @@
     <input name="{{ which }}_domain" value="{{ f.get(which ~ '_domain','') }}" placeholder="{{ 'test-app.gk3-architektur.de' if which == 'test' else 'app.gk3-architektur.de' }}">
     <div class="hint">Mit Domain legt die App einen normalen Proxy-Host im Proxy Manager an.</div>
     <div class="datafield">
-      <label>Datenordner auf dem Server</label>
-      <input name="{{ which }}_data_path" id="{{ which }}_data_path" data-which="{{ which }}" value="{{ f.get(which ~ '_data_path','') }}" placeholder="wird aus dem Schema des Servers vorgeschlagen">
-      <div class="hint" id="{{ which }}_data_hint">Named Volume „…-{{ which }}“, angelegt nach dem Schema, das auf dem Server schon verwendet wird.</div>
+      <label>Daten</label>
+      <div class="hint" id="{{ which }}_data_hint" style="margin-top:0">Named Volume „…-{{ which }}“ im Docker-Datenordner des Servers.</div>
     </div>
     <label>Umgebungsvariablen (optional)</label>
     <textarea name="{{ which }}_env" placeholder="NAME=Wert">{{ f.get(which ~ '_env','') }}</textarea>
@@ -75,30 +79,31 @@ name.addEventListener('input', () => {
   slug.value = name.value.toLowerCase().replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
     .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
 });
-// Datenordner: Vorschlag nach dem Schema des gewählten Servers (bis er von Hand geändert wird)
-const edited = {test: !!document.getElementById('test_data_path').value, prod: !!document.getElementById('prod_data_path').value};
+// Daten: zeigen, wo das Named Volume auf dem gewählten Server landet
 const vol = document.querySelector('[name=volume_path]');
 let timer;
-async function propose(which) {
-  const field = document.getElementById(which + '_data_path'), hint = document.getElementById(which + '_data_hint');
-  if (edited[which] || !slug.value) return;
-  const r = await fetch('/api/volume-vorschlag?server=' + document.getElementById(which + '_server').value
-    + '&name=' + encodeURIComponent(slug.value + '-' + which));
-  const j = await r.json();
-  if (j.ok && !edited[which]) { field.value = j.path; hint.textContent = j.hint; }
+async function where(which) {
+  if (!slug.value) return;
+  const j = await (await fetch('/api/volume-ort?server=' + document.getElementById(which + '_server').value
+    + '&name=' + encodeURIComponent(slug.value + '-' + which))).json();
+  if (j.ok) document.getElementById(which + '_data_hint').textContent = j.hint;
 }
-function proposeAll() { clearTimeout(timer); timer = setTimeout(() => { propose('test'); propose('prod'); }, 400); }
-for (const w of ['test', 'prod']) {
-  document.getElementById(w + '_data_path').addEventListener('input', () => edited[w] = true);
-  document.getElementById(w + '_server').addEventListener('change', () => { edited[w] = false; propose(w); });
-}
-name.addEventListener('input', proposeAll); slug.addEventListener('input', proposeAll);
+function whereAll() { clearTimeout(timer); timer = setTimeout(() => { where('test'); where('prod'); }, 400); }
+for (const w of ['test', 'prod']) document.getElementById(w + '_server').addEventListener('change', () => where(w));
+name.addEventListener('input', whereAll); slug.addEventListener('input', whereAll);
 function toggleData() { document.querySelectorAll('.datafield').forEach(el => el.style.display = vol.value.trim() ? '' : 'none'); }
-vol.addEventListener('input', toggleData); toggleData(); proposeAll();
-const ports = {python: 8000, node: 3000, static: 8080};
+vol.addEventListener('input', toggleData); toggleData(); whereAll();
+const ports = {python: 8000, node: 3000, static: 8080, zip: 8080};
 const tpl = document.getElementById('template'), cport = document.getElementById('cport');
+function tplChanged() {
+  const zip = tpl.value === 'zip';
+  document.getElementById('uploadbox').style.display = zip ? '' : 'none';
+  document.getElementById('tplhint').style.display = zip ? 'none' : '';
+}
 tpl.addEventListener('change', () => {
   if (Object.values(ports).map(String).includes(cport.value) || !cport.value) cport.value = ports[tpl.value];
+  tplChanged();
 });
+tplChanged();
 </script>
 {% endblock %}

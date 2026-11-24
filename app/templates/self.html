@@ -7,7 +7,7 @@
   <ol class="small muted">
     <li>Repository mit dem laufenden Programmcode und der Pipeline anlegen, ersten Build abwarten</li>
     <li>Die laufende Version als erste Freigabe v{{ APP_VERSION }} eintragen (es ändert sich nichts am Programm)</li>
-    <li>Umstieg: alte Instanz anhalten, deine Daten (Zugänge, Projekte) in den Datenordner kopieren, als Stack neu starten</li>
+    <li>Umstieg: alte Instanz anhalten, deine Daten (Zugänge, Projekte) ins neue Volume kopieren, als Stack neu starten</li>
   </ol>
   <p class="small muted" style="margin-bottom:0">Die Oberfläche ist beim Umstieg etwa eine Minute weg. Klappt der Stack nicht, startet die alte Instanz automatisch wieder.
   Der alte Container bleibt angehalten als „deploy-automatik-alt“ stehen, bis du ihn löschst.</p>
@@ -21,9 +21,8 @@
   </select>
   <label>Port</label>
   <input name="port" value="{{ f.get('port','8095') }}" inputmode="numeric">
-  <label>Datenordner auf dem Server</label>
-  <input name="data_path" id="data_path" value="{{ f.get('data_path','') }}">
-  <div class="hint" id="hint">Wird nach dem Schema des Servers vorgeschlagen.</div>
+  <label>Daten</label>
+  <div class="hint" id="hint" style="margin-top:0">Named Volume „deploy-automatik“ im Docker-Datenordner des Servers.</div>
   <label>Sichtbarkeit</label>
   <div class="row">
     <label class="check"><input type="radio" name="visibility" value="public" {{ 'checked' if f.get('visibility','public') == 'public' }}> öffentlich</label>
@@ -32,14 +31,11 @@
   <p><button>Einrichten und umsteigen</button></p>
 </form>
 <script>
-const field = document.getElementById('data_path'); let edited = !!field.value;
-field.addEventListener('input', () => edited = true);
-async function propose() {
-  if (edited) return;
-  const j = await (await fetch('/api/volume-vorschlag?server=' + document.getElementById('server').value + '&name=deploy-automatik')).json();
-  if (j.ok && !edited) { field.value = j.path; document.getElementById('hint').textContent = j.hint; }
+async function where() {
+  const j = await (await fetch('/api/volume-ort?server=' + document.getElementById('server').value + '&name=deploy-automatik')).json();
+  if (j.ok) document.getElementById('hint').textContent = j.hint;
 }
-document.getElementById('server').addEventListener('change', () => { edited = false; propose(); });
-propose();
+document.getElementById('server').addEventListener('change', where);
+where();
 </script>
 {% endblock %}
