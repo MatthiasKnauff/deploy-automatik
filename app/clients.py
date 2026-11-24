@@ -257,6 +257,13 @@ class Portainer:
         return (f"{self.url}/api/stacks/create/standalone/repository?endpointId={endpoint_id}",
                 f"{self.url}/api/stacks?type=2&method=repository&endpointId={endpoint_id}")
 
+    def redeploy_git_stack(self, stack_id, endpoint_id, ref, env, auth=None):
+        """Stack mit neuer Umgebung neu ausrollen (Portainer speichert die Umgebung dabei mit)."""
+        body = {"repositoryReferenceName": ref, "repositoryAuthentication": bool(auth),
+                "repositoryUsername": auth[0] if auth else "", "repositoryPassword": auth[1] if auth else "",
+                "env": [{"name": k, "value": str(v)} for k, v in env.items()], "prune": False, "pullImage": True}
+        self._req("PUT", f"/api/stacks/{stack_id}/git/redeploy?endpointId={endpoint_id}", json=body, timeout=600)
+
     def create_git_stack(self, endpoint_id, name, repo_url, ref, env, auth=None, interval="1m"):
         body = self.stack_body(name, repo_url, ref, env, auth, interval)
         r = self._req("POST", f"/api/stacks/create/standalone/repository?endpointId={endpoint_id}",
@@ -295,6 +302,10 @@ class ProxyManager:
             if domain.lower() in [d.lower() for d in h.get("domain_names", [])]:
                 return h
         return None
+
+    def update_forward(self, host_id, forward_host, forward_port):
+        self._req("PUT", f"/api/nginx/proxy-hosts/{host_id}",
+                  json={"forward_host": forward_host, "forward_port": int(forward_port)})
 
     def delete_host(self, host_id):
         self._req("DELETE", f"/api/nginx/proxy-hosts/{host_id}", ok=(200, 204, 404))

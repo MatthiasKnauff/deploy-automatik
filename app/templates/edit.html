@@ -1,13 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>{{ p.name }} – Domains</h1>
-<form method="post" class="panel" style="max-width:620px">
-  {% for w in envs %}
-  <label class="{{ 'tag-test' if w == 'test' else 'tag-prod' }}">{{ 'Testserver' if w == 'test' else 'Produktivserver' }} · {{ d[w].server_name }} :{{ d[w].host_port }}</label>
-  <input name="{{ w }}_domain" value="{{ d[w].domain or '' }}" placeholder="{{ 'zuhause-test.knauff.info' if w == 'test' else 'zuhause.knauff.info' }}">
+<h1>{{ p.name }} – Einstellungen</h1>
+<form method="post">
+<div class="grid2">
+  {% for w in envs %}{% set e = d[w] %}
+  <div class="envbox panel">
+    <h3 class="{{ 'tag-test' if w == 'test' else 'tag-prod' }}">{{ 'Testserver' if w == 'test' else 'Produktivserver' }}</h3>
+    <div class="hint">{{ e.server_name }} ({{ e.host }}){% if e.volume_name %} · Volume {{ e.volume_name }}{% endif %}</div>
+    {% if not is_self %}
+    <label>Port auf dem Server</label>
+    <input name="{{ w }}_port" value="{{ f.get(w ~ '_port', e.host_port) }}" inputmode="numeric">
+    {% endif %}
+    <label>Domain</label>
+    <input name="{{ w }}_domain" value="{{ f.get(w ~ '_domain', e.domain or '') }}" placeholder="{{ 'zuhause-test.knauff.info' if w == 'test' else 'zuhause.knauff.info' }}">
+    {% if not is_self %}
+    <label>Umgebungsvariablen</label>
+    <textarea name="{{ w }}_env" rows="6" placeholder="NAME=Wert">{{ f.get(w ~ '_env', e.env | envtext) }}</textarea>
+    {% endif %}
+  </div>
   {% endfor %}
-  <div class="hint">Neue Domain: die App legt einen normalen Proxy-Host an. Geänderte Domain: neuer Proxy-Host, der bisherige (von der App angelegte) wird entfernt. Leer: Proxy-Host wird entfernt.
-  Beim Produktivserver passiert das erst, wenn er eingerichtet ist (nach der ersten Freigabe).</div>
-  <p class="row"><button>Speichern und einrichten</button> <a href="/projekt/{{ p.id }}">Abbrechen</a></p>
+</div>
+<div class="panel small muted">
+  <strong>Was beim Speichern passiert</strong>
+  <ul style="margin:6px 0 0">
+    <li>Port oder Werte geändert: der Portainer-Stack startet mit den neuen Einstellungen neu, der Proxy-Host zeigt auf den neuen Port.</li>
+    <li>Variable neu oder entfernt: die Compose-Vorlage im Repository wird angepasst – der Testserver hat sie nach dem nächsten Build, der Produktivserver nach der nächsten Freigabe.</li>
+    <li>Domain neu: normaler Proxy-Host mit SSL. Geändert: der bisherige wird ersetzt. Leer: wird entfernt.</li>
+    <li>Ist der Produktivserver noch nicht eingerichtet, gelten die Werte, sobald er nach der ersten Freigabe angelegt wird.</li>
+  </ul>
+</div>
+<p class="row"><button>Speichern und übernehmen</button> <a href="/projekt/{{ p.id }}">Abbrechen</a></p>
 </form>
 {% endblock %}

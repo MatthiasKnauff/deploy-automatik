@@ -266,31 +266,73 @@ def project_edit(pid):
     if not p:
         return redirect("/")
     d = p["data"]
+    is_self = d.get("kind") == "self"
     envs = [w for w in ("test", "prod") if d.get(w)]
     if request.method == "POST":
+        f = request.form
         if runner.is_running(pid):
             flash("Die Einrichtung läuft gerade – bitte kurz warten.", "fehler")
-            return redirect(url_for("project_edit", pid=pid))
-        changed = []
+            return render_template("edit.html", p=p, d=d, envs=envs, is_self=is_self, f=f)
+        errors, changes, new = [], {}, {}
+        keys_before = set().union(*[set(d[w].get("env") or {}) for w in envs])
         for w in envs:
-            dom = re.sub(r"^https?://", "", request.form.get(f"{w}_domain", "").strip().lower()).rstrip("/")
+            label = "Test" if w == "test" else "Produktiv"
+            e = dict(d[w])
+            dom = re.sub(r"^https?://", "", f.get(f"{w}_domain", "").strip().lower()).rstrip("/")
             if dom and not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", dom):
-                flash(f"Domain „{dom}“ ungültig.", "fehler")
-                return redirect(url_for("project_edit", pid=pid))
-            if dom != (d[w].get("domain") or ""):
-                d[w]["domain"] = dom
-                changed.append(w)
-        if not changed:
+                errors.append(f"{label}: Domain „{dom}“ ungültig.")
+            port, env = e["host_port"], e.get("env") or {}
+            if not is_self:
+                try:
+                    port = int(f.get(f"{w}_port") or 0)
+                    assert 1 <= port <= 65535
+                except (ValueError, AssertionError):
+                    errors.append(f"{label}: Port ungültig.")
+                    port = e["host_port"]
+                try:
+                    env = _parse_env(f.get(f"{w}_env"))
+                except ValueError as ex:
+                    errors.append(f"{label}: {ex}")
+            ch = {"domain": dom != (e.get("domain") or ""), "port": port != int(e["host_port"]), "env": env != (e.get("env") or {})}
+            if ch["port"]:
+                srv = db.server(e["server_id"])
+                try:
+                    used = Portainer(srv["url"], srv["api_key"], srv["verify_tls"]).used_ports(srv["endpoint_id"])
+                    owner = used.get(port)
+                    if owner and owner != f"{d['slug']}-{w}":
+                        errors.append(f"{label}: Port {port} auf {srv['name']} ist schon von „{owner}“ belegt.")
+                except Exception as ex:  # noqa: BLE001
+                    errors.append(f"{label}: Server nicht erreichbar ({ex}).")
+            e.update(domain=dom, host_port=port, env=env)
+            new[w] = e
+            if any(ch.values()):
+                changes[w] = ch
+        if len(envs) == 2 and new["test"]["server_id"] == new["prod"]["server_id"] \
+                and new["test"]["host_port"] == new["prod"]["host_port"]:
+            errors.append("Test und Produktiv brauchen auf demselben Server verschiedene Ports.")
+        if errors:
+            for e in errors:
+                flash(e, "fehler")
+            return render_template("edit.html", p=p, d=d, envs=envs, is_self=is_self, f=f)
+        if not changes:
             flash("Nichts geändert.", "ok")
             return redirect(url_for("project", pid=pid))
-        db.update_project_data(pid, **{w: d[w] for w in changed})
-        for w in changed:
-            db.set_step(pid, f"{w}_proxy", "offen", "")
+        keys_after = set().union(*[set(new[w].get("env") or {}) for w in envs])
+        db.update_project_data(pid, **new)
+        for w, ch in changes.items():
             label = "Test" if w == "test" else "Produktiv"
-            db.add_log(pid, f"{label}: Domain geändert auf {d[w]['domain'] or '– (keine)'}")
-        runner.start(pid)
+            was = [n for n, k in (("Domain", "domain"), ("Port", "port"), ("Umgebungsvariablen", "env")) if ch[k]]
+            db.add_log(pid, f"{label}: geändert – {', '.join(was)}")
+        runner.apply_settings(pid, changes, keys_after != keys_before)
         return redirect(url_for("project", pid=pid))
-    return render_template("edit.html", p=p, d=d, envs=envs)
+    return render_template("edit.html", p=p, d=d, envs=envs, is_self=is_self, f={})
+
+
+def _env_text(env):
+    return "\n".join(f"{k}={v}" for k, v in (env or {}).items())
+
+
+app.jinja_env.filters["envtext"] = _env_text
 
 
 @app.post("/projekt/<int:pid>/entfernen")

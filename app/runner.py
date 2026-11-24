@@ -7,7 +7,7 @@ import traceback
 
 from . import db
 from .clients import ApiError, GitHub, Portainer, ProxyManager
-from .generator import generate, generate_self
+from .generator import compose_template, generate, generate_self
 
 SELF_NAME = "deploy-automatik"
 SOURCE_DIR = os.environ.get("SOURCE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -450,6 +450,47 @@ def _verify_switch(pid):
             pass
         time.sleep(10)
     db.set_step(pid, "self_switch", "fehler", "Umstieg nicht bestätigt – bitte in Portainer nachsehen.")
+
+
+def apply_settings(pid, changes, keys_changed):
+    """Geänderte Einstellungen übernehmen: Compose-Vorlage (neue Variablen), Stack-Umgebung, Proxy-Ziel, Domains."""
+    with _running_lock:
+        if pid in _running:
+            return False
+        _running.add(pid)
+
+    def go():
+        c = Ctx(pid)
+        try:
+            if keys_changed and c.p.get("files_commit") and c.p.get("kind") != "self":
+                sha = c.gh.commit_files(c.owner, c.slug, {"deploy/compose.template.yml": compose_template(c.p)},
+                                        "Umgebungsvariablen geändert (Compose-Vorlage)")
+                c.log(f"Compose-Vorlage mit neuen Variablen ins Repository geschrieben ({sha[:7]}) – "
+                      "Testserver bekommt sie mit diesem Build, Produktiv mit der nächsten Freigabe")
+            for which, ch in changes.items():
+                label = "Test" if which == "test" else "Produktiv"
+                e, srv = c.env(which)
+                stack_id = c.p.get(f"{which}_stack_id")
+                if (ch["port"] or ch["env"]) and stack_id:
+                    pt = c.portainer(srv)
+                    login, token = c.gh.user()[0], db.get_setting("github_token")
+                    pt.redeploy_git_stack(stack_id, srv["endpoint_id"], f"refs/heads/deploy-{which}", _stack_env(e),
+                                          (login, token) if c.p["private"] else None)
+                    c.log(f"{label}: Stack mit den neuen Einstellungen neu gestartet")
+                if ch["port"] and not ch["domain"] and c.p.get(f"{which}_proxy_id"):
+                    c.npm().update_forward(c.p[f"{which}_proxy_id"], srv["host"], e["host_port"])
+                    c.log(f"{label}: Proxy-Host zeigt jetzt auf {srv['host']}:{e['host_port']}")
+                if ch["domain"]:
+                    db.set_step(pid, f"{which}_proxy", "offen", "")
+        except Exception as ex:  # noqa: BLE001
+            c.log(f"✗ Änderung nicht vollständig übernommen: {ex}")
+            with _running_lock:
+                _running.discard(pid)
+            return
+        _run(pid)  # offene Proxy-Schritte (neue Domains) abarbeiten; gibt das Projekt am Ende frei
+
+    threading.Thread(target=go, daemon=True).start()
+    return True
 
 
 def resume():
