@@ -8,7 +8,7 @@
   <table style="margin-top:8px">
     <tr><th>Name</th><th>Portainer</th><th>Umgebung</th><th>IP-Adresse des Servers <span class="muted small">(Ziel für den Proxy)</span></th><th></th></tr>
     {% for s in servers %}
-    <tr><td><strong>{{ s.name }}</strong></td><td class="small">{{ s.url }}</td><td>{{ s.endpoint_id }}</td><td>{{ s.host }}{% set u = s.url.split('//')[-1].split('/')[0].split(':')[0] %}{% if u and u != s.host %}<div class="small" style="color:var(--err)">⚠ Portainer läuft auf {{ u }} – prüfen</div>{% endif %}</td>
+    <tr><td><strong>{{ s.name }}</strong></td><td class="small"><a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.url }}</a></td><td>{{ s.endpoint_id }}</td><td>{{ s.host }}{% set u = s.url.split('//')[-1].split('/')[0].split(':')[0] %}{% if u and u != s.host %}<div class="small" style="color:var(--err)">⚠ Portainer läuft auf {{ u }} – prüfen</div>{% endif %}</td>
       <td style="text-align:right"><a href="/server/{{ s.id }}">Bearbeiten</a></td></tr>
     {% endfor %}
   </table>
