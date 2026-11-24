@@ -15,9 +15,11 @@
   <select name="endpoint_id" id="endpoint">
     {% if srv %}<option value="{{ srv.endpoint_id }}">Umgebung {{ srv.endpoint_id }}</option>{% else %}<option value="">– erst Umgebungen laden –</option>{% endif %}
   </select>
-  <label>Adresse des Servers für den Proxy</label>
-  <input name="host" value="{{ f.get('host') or (srv.host if srv else '') }}" placeholder="192.168.1.31" required>
-  <div class="hint">IP oder Name, unter dem der Proxy Manager diesen Docker-Server erreicht.</div>
+  <label>IP-Adresse dieses Docker-Servers</label>
+  <input name="host" id="host" autocomplete="off" value="{{ f.get('host') or (srv.host if srv else '') }}" placeholder="192.168.1.31" required>
+  <div class="hint">Die Adresse des Rechners, auf dem die Container dieses Servers laufen – <strong>nicht</strong> die Adresse des Proxy Managers.
+    Der Proxy Manager leitet die Domains der Apps an diese Adresse weiter. Meist dieselbe IP wie in der Portainer-Adresse oben.</div>
+  <div class="hint" id="host-warn" style="color:var(--err);display:none"></div>
   <p class="row"><button>Speichern</button> <a href="/einstellungen">Abbrechen</a></p>
 </form>
 {% if srv %}
@@ -26,6 +28,19 @@
 </form>
 {% endif %}
 <script>
+// IP-Adresse aus der Portainer-Adresse vorschlagen und warnen, wenn sie abweicht
+(() => {
+  const url = document.getElementById('url'), host = document.getElementById('host'), warn = document.getElementById('host-warn');
+  const ausUrl = () => { try { return new URL(url.value.trim()).hostname; } catch (e) { return ''; } };
+  const pruefe = () => {
+    const u = ausUrl();
+    if (u && !host.value.trim()) host.value = u;
+    const anders = u && host.value.trim() && host.value.trim() !== u;
+    warn.style.display = anders ? '' : 'none';
+    warn.textContent = anders ? 'Weicht von der Portainer-Adresse (' + u + ') ab – stimmt das? Sonst landet die Domain auf dem falschen Rechner.' : '';
+  };
+  url.addEventListener('change', pruefe); host.addEventListener('input', pruefe); pruefe();
+})();
 document.getElementById('load').addEventListener('click', async () => {
   const st = document.getElementById('status');
   st.textContent = 'Verbinde …';

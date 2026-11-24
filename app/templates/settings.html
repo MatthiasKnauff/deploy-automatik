@@ -6,9 +6,9 @@
   <div class="row"><h2 style="margin:0">Docker-Server (Portainer)</h2><span class="spacer"></span><a class="btn secondary" href="/server/neu">Server hinzufügen</a></div>
   {% if servers %}
   <table style="margin-top:8px">
-    <tr><th>Name</th><th>Portainer</th><th>Umgebung</th><th>Adresse für den Proxy</th><th></th></tr>
+    <tr><th>Name</th><th>Portainer</th><th>Umgebung</th><th>IP-Adresse des Servers <span class="muted small">(Ziel für den Proxy)</span></th><th></th></tr>
     {% for s in servers %}
-    <tr><td><strong>{{ s.name }}</strong></td><td class="small">{{ s.url }}</td><td>{{ s.endpoint_id }}</td><td>{{ s.host }}</td>
+    <tr><td><strong>{{ s.name }}</strong></td><td class="small">{{ s.url }}</td><td>{{ s.endpoint_id }}</td><td>{{ s.host }}{% set u = s.url.split('//')[-1].split('/')[0].split(':')[0] %}{% if u and u != s.host %}<div class="small" style="color:var(--err)">⚠ Portainer läuft auf {{ u }} – prüfen</div>{% endif %}</td>
       <td style="text-align:right"><a href="/server/{{ s.id }}">Bearbeiten</a></td></tr>
     {% endfor %}
   </table>
