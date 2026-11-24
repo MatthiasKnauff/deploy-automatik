@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ 'Server bearbeiten' if srv else 'Server hinzufügen' }}</h1>
+<form class="panel" method="post" style="max-width:620px">
+  <label>Name</label>
+  <input name="name" value="{{ f.get('name') or (srv.name if srv else '') }}" placeholder="Docker 1" required>
+  <label>Portainer-Adresse</label>
+  <input name="url" id="url" value="{{ f.get('url') or (srv.url if srv else '') }}" placeholder="https://192.168.1.31:9443" required>
+  <label>API-Schlüssel</label>
+  <input type="password" name="api_key" id="key" autocomplete="off" placeholder="{{ '•••••••• gespeichert – leer lassen zum Behalten' if srv else 'ptr_…' }}" {{ '' if srv else 'required' }}>
+  <div class="hint">In Portainer: oben rechts auf deinen Benutzer → „Access tokens“ → „Add access token“.</div>
+  <label class="check" style="margin-top:12px"><input type="checkbox" name="verify_tls" id="tls" value="1" {{ 'checked' if (srv.verify_tls if srv else False) }}> Zertifikat prüfen (aus lassen bei selbstsigniertem Portainer-Zertifikat)</label>
+  <p><button type="button" class="secondary" id="load">Verbindung prüfen und Umgebungen laden</button> <span id="status" class="small muted"></span></p>
+  <label>Umgebung (Endpoint)</label>
+  <select name="endpoint_id" id="endpoint">
+    {% if srv %}<option value="{{ srv.endpoint_id }}">Umgebung {{ srv.endpoint_id }}</option>{% else %}<option value="">– erst Umgebungen laden –</option>{% endif %}
+  </select>
+  <label>Adresse des Servers für den Proxy</label>
+  <input name="host" value="{{ f.get('host') or (srv.host if srv else '') }}" placeholder="192.168.1.31" required>
+  <div class="hint">IP oder Name, unter dem der Proxy Manager diesen Docker-Server erreicht.</div>
+  <p class="row"><button>Speichern</button> <a href="/einstellungen">Abbrechen</a></p>
+</form>
+{% if srv %}
+<form method="post" action="/server/{{ srv.id }}/loeschen" onsubmit="return confirm('Server aus der Liste entfernen?')">
+  <button class="danger">Server entfernen</button>
+</form>
+{% endif %}
+<script>
+document.getElementById('load').addEventListener('click', async () => {
+  const st = document.getElementById('status');
+  st.textContent = 'Verbinde …';
+  const r = await fetch('/api/portainer/umgebungen', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url: document.getElementById('url').value, api_key: document.getElementById('key').value,
+      verify_tls: document.getElementById('tls').checked, id: {{ srv.id if srv else 'null' }}})});
+  const j = await r.json();
+  if (!j.ok) { st.textContent = j.error; st.style.color = 'var(--err)'; return; }
+  st.style.color = 'var(--ok)';
+  st.textContent = 'Verbunden – Portainer ' + j.version;
+  const sel = document.getElementById('endpoint'), cur = sel.value;
+  sel.innerHTML = '';
+  for (const e of j.endpoints) {
+    const o = document.createElement('option'); o.value = e.id; o.textContent = e.name + ' (' + e.id + ')';
+    if (String(e.id) === cur) o.selected = true;
+    sel.appendChild(o);
+  }
+});
+</script>
+{% endblock %}

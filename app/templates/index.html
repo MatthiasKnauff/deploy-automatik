@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row" style="margin-bottom:16px">
+  <h1 style="margin:0">Projekte</h1><span class="spacer"></span>
+  {% if ready %}<a class="btn" href="/neu">Neues Projekt</a>{% endif %}
+</div>
+
+{% if not ready %}
+<div class="panel">
+  <h2>Erst einrichten</h2>
+  <p>Damit die App Projekte anlegen kann, braucht sie einmalig deine Zugänge:</p>
+  <ol>
+    <li>GitHub-Token</li>
+    <li>mindestens einen Docker-Server (Portainer), besser zwei: Test und Produktiv</li>
+    <li>optional den Nginx Proxy Manager, wenn Domains eingerichtet werden sollen</li>
+  </ol>
+  <a class="btn" href="/einstellungen">Zu den Einstellungen</a>
+</div>
+{% endif %}
+
+<div class="panel" style="padding:8px 20px">
+{% if projects %}
+<table>
+  <tr><th>Projekt</th><th>Test</th><th>Produktiv</th><th>Stand</th></tr>
+  {% for p in projects %}{% set d = p.data %}
+  <tr>
+    <td><a href="/projekt/{{ p.id }}"><strong>{{ p.name }}</strong></a><br>
+      <span class="muted small">{{ d.owner }}/{{ d.slug }} · {{ TEMPLATES[d.template] }}</span></td>
+    <td class="small">{% if d.test %}{{ d.test.server_name }} :{{ d.test.host_port }}{% if d.test.domain %}<br><span class="muted">{{ d.test.domain }}</span>{% endif %}{% else %}<span class="muted">–</span>{% endif %}</td>
+    <td class="small">{{ d.prod.server_name }} :{{ d.prod.host_port }}{% if d.prod.domain %}<br><span class="muted">{{ d.prod.domain }}</span>{% endif %}</td>
+    <td><span class="badge {{ p.state[0] }}">{{ p.state[1] }}</span></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="empty">Noch keine Projekte.{% if ready %} <a href="/neu">Erstes Projekt anlegen</a>{% endif %}</div>
+{% endif %}
+</div>
+{% endblock %}

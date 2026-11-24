@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block head %}{% if state[0] == 'läuft' %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block title %}{{ p.name }} – Deploy-Automatik{% endblock %}
+{% block content %}
+<div class="row" style="margin-bottom:8px">
+  <h1 style="margin:0">{{ p.name }}</h1>
+  <span class="badge {{ state[0] }}">{{ state[1] }}</span>
+  <span class="spacer"></span>
+  {% if state[0] in ('fehler', 'wartet', 'offen') %}
+  <form method="post" action="/projekt/{{ p.id }}/weiter"><button>{{ 'Erneut versuchen' if state[0] == 'fehler' else 'Jetzt prüfen' if state[0] == 'wartet' else 'Fortsetzen' }}</button></form>
+  {% endif %}
+</div>
+<p class="muted small links" style="margin-top:0">
+  <a href="{{ links.repo }}" target="_blank">Repository</a>
+  <a href="{{ links.actions }}" target="_blank">Pipeline (Actions)</a>
+  {% if links.test %}<a href="{{ links.test }}" target="_blank">Testserver</a>{% endif %}
+  <a href="{{ links.prod }}" target="_blank">Produktivserver</a>
+</p>
+
+{% if links.release %}
+<div class="panel row">
+  <div>
+    <strong>Freigabe für den Produktivserver</strong><br>
+    <span class="muted small">Aktuell freigegeben: {{ links.current or 'noch nichts' }} · nächste Version: {{ links.next }}</span>
+  </div>
+  <span class="spacer"></span>
+  <a class="btn" href="{{ links.release }}" target="_blank">{{ links.next }} freigeben</a>
+</div>
+{% endif %}
+
+<div class="grid2">
+  <div class="panel">
+    <h2>Einrichtung</h2>
+    <ul class="steps">
+      {% for s in steps %}
+      <li class="st-{{ s.status }}">
+        <span class="ic">{{ STATUS_ICON.get(s.status, '?') }}</span>
+        <div>{{ s.title }}{% if s.message %}<div class="msg">{{ s.message }}</div>{% endif %}</div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div>
+    <div class="panel">
+      <h2>Ziele</h2>
+      <table class="small">
+        <tr><th></th><th>Server</th><th>Port</th><th>Domain</th><th>Datenordner</th></tr>
+        {% if d.test %}<tr><td class="tag-test">Test</td><td>{{ d.test.server_name }}</td><td>{{ d.test.host_port }}</td><td>{{ d.test.domain or '–' }}</td><td>{{ d.test.data_path or '–' }}</td></tr>{% endif %}
+        <tr><td class="tag-prod">Produktiv</td><td>{{ d.prod.server_name }}</td><td>{{ d.prod.host_port }}</td><td>{{ d.prod.domain or '–' }}</td><td>{{ d.prod.data_path or '–' }}</td></tr>
+      </table>
+      <p class="small muted" style="margin-bottom:0">{{ TEMPLATES[d.template] }} · Container-Port {{ d.container_port }}{% if d.volume_path %} · Daten in {{ d.volume_path }}{% endif %} · {{ 'privat' if d.private else 'öffentlich' }}</p>
+    </div>
+    <div class="panel">
+      <h2>Protokoll</h2>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+</div>
+
+<form method="post" action="/projekt/{{ p.id }}/entfernen" onsubmit="return confirm('Nur aus der Liste entfernen? Repository, Stacks und Proxy-Hosts bleiben bestehen.')">
+  <button class="danger">Aus Liste entfernen</button>
+</form>
+
+<script>
+const entries = {{ log | tojson }};
+document.getElementById('log').textContent = entries.map(l => {
+  const d = new Date(l.ts * 1000);
+  return d.toLocaleDateString('de-DE') + ' ' + d.toLocaleTimeString('de-DE') + '  ' + l.text;
+}).join('\n') || 'Noch keine Einträge.';
+const box = document.getElementById('log'); box.scrollTop = box.scrollHeight;
+</script>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="login panel">
+  <h1>Deploy-Automatik</h1>
+  <form method="post">
+    {% if first_run %}
+      <p class="muted small">Erster Start: Lege ein Passwort für die Oberfläche fest.</p>
+      <label>Passwort</label><input type="password" name="password" autofocus required minlength="8">
+      <label>Passwort wiederholen</label><input type="password" name="password2" required>
+      <p><button>Festlegen und anmelden</button></p>
+    {% else %}
+      <label>Passwort</label><input type="password" name="password" autofocus required>
+      <p><button>Anmelden</button></p>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}

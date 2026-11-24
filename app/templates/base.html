@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Deploy-Automatik{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% block head %}{% endblock %}
+</head>
+<body>
+{% if session.ok %}
+<header><div class="inner">
+  <a class="brand" href="/">Deploy-Automatik<span>v{{ APP_VERSION }}</span></a>
+  <nav class="row">
+    <a href="/" class="{{ 'active' if request.path == '/' }}">Projekte</a>
+    <a href="/neu" class="{{ 'active' if request.path == '/neu' }}">Neues Projekt</a>
+    <a href="/einstellungen" class="{{ 'active' if request.path.startswith('/einstellungen') or request.path.startswith('/server') }}">Einstellungen</a>
+    <a href="/abmelden">Abmelden</a>
+  </nav>
+</div></header>
+{% endif %}
+<main>
+{% with msgs = get_flashed_messages(with_categories=true) %}
+  {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+{% endwith %}
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

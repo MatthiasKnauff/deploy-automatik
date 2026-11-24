@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Neues Projekt</h1>
+<div class="flow" style="margin-bottom:16px">
+  <span>GitHub-Repository</span><span>Pipeline</span><span>erster Build</span><span>Testserver + Proxy</span><span>Freigabe</span><span>Produktivserver + Proxy</span>
+</div>
+
+<form method="post">
+<div class="panel">
+  <div class="grid2">
+    <div>
+      <label>Name</label>
+      <input name="name" id="name" value="{{ f.get('name','') }}" required placeholder="z. B. Mängelliste">
+      <label>Repository</label>
+      <div class="row" style="flex-wrap:nowrap"><span class="muted">{{ owner }}/</span><input name="slug" id="slug" value="{{ f.get('slug','') }}" placeholder="maengelliste"></div>
+      <div class="hint">Nur Kleinbuchstaben, Zahlen und Bindestriche. Wird auch für Stacks und Container verwendet.</div>
+      <label>Beschreibung</label>
+      <input name="description" value="{{ f.get('description','') }}">
+    </div>
+    <div>
+      <label>Vorlage für den Start</label>
+      <select name="template" id="template">
+        {% for k, v in TEMPLATES.items() %}<option value="{{ k }}" {{ 'selected' if f.get('template') == k }}>{{ v }}</option>{% endfor %}
+      </select>
+      <div class="hint">Ein kleines lauffähiges Gerüst mit Dockerfile – der eigentliche Inhalt kommt danach ins Repository.</div>
+      <div class="grid2" style="gap:12px">
+        <div><label>Port im Container</label><input name="container_port" id="cport" value="{{ f.get('container_port','8000') }}" inputmode="numeric"></div>
+        <div><label>Datenordner im Container</label><input name="volume_path" value="{{ f.get('volume_path','/data') }}"></div>
+      </div>
+      <div class="hint">Datenordner leer lassen, wenn die App nichts speichern muss. Test und Produktiv bekommen getrennte Volumes.</div>
+      <label>Sichtbarkeit</label>
+      <div class="row">
+        <label class="check"><input type="radio" name="visibility" value="public" {{ 'checked' if f.get('visibility','public') == 'public' }}> öffentlich</label>
+        <label class="check"><input type="radio" name="visibility" value="private" {{ 'checked' if f.get('visibility') == 'private' }}> privat</label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid2">
+  {% for which, label, cls, default_idx in [('test','Testserver','tag-test',0), ('prod','Produktivserver','tag-prod',1)] %}
+  <div class="envbox panel">
+    <h3 class="{{ cls }}">{{ label }}</h3>
+    <div class="hint">{{ 'Bekommt jeden Push auf main automatisch.' if which == 'test' else 'Bekommt nur freigegebene Versionen (Releases).' }}</div>
+    <label>Docker-Server</label>
+    {% set chosen = f.get(which ~ '_server') or (servers[default_idx].id if servers|length > default_idx else servers[0].id)|string %}
+    <select name="{{ which }}_server" id="{{ which }}_server">
+      {% for s in servers %}<option value="{{ s.id }}" {{ 'selected' if s.id|string == chosen }}>{{ s.name }} ({{ s.host }})</option>{% endfor %}
+    </select>
+    <label>Port auf dem Server</label>
+    <input name="{{ which }}_port" value="{{ f.get(which ~ '_port','') }}" inputmode="numeric" required placeholder="z. B. 8110">
+    <label>Domain (optional)</label>
+    <input name="{{ which }}_domain" value="{{ f.get(which ~ '_domain','') }}" placeholder="{{ 'test-app.gk3-architektur.de' if which == 'test' else 'app.gk3-architektur.de' }}">
+    <div class="hint">Mit Domain legt die App einen normalen Proxy-Host im Proxy Manager an.</div>
+    <div class="datafield">
+      <label>Datenordner auf dem Server</label>
+      <input name="{{ which }}_data_path" id="{{ which }}_data_path" data-which="{{ which }}" value="{{ f.get(which ~ '_data_path','') }}" placeholder="wird aus dem Schema des Servers vorgeschlagen">
+      <div class="hint" id="{{ which }}_data_hint">Named Volume „…-{{ which }}“, angelegt nach dem Schema, das auf dem Server schon verwendet wird.</div>
+    </div>
+    <label>Umgebungsvariablen (optional)</label>
+    <textarea name="{{ which }}_env" placeholder="NAME=Wert">{{ f.get(which ~ '_env','') }}</textarea>
+  </div>
+  {% endfor %}
+</div>
+
+<p><button>Projekt anlegen und einrichten</button></p>
+</form>
+
+<script>
+const name = document.getElementById('name'), slug = document.getElementById('slug');
+let touched = !!slug.value;
+slug.addEventListener('input', () => touched = true);
+name.addEventListener('input', () => {
+  if (touched) return;
+  slug.value = name.value.toLowerCase().replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+    .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
+});
+// Datenordner: Vorschlag nach dem Schema des gewählten Servers (bis er von Hand geändert wird)
+const edited = {test: !!document.getElementById('test_data_path').value, prod: !!document.getElementById('prod_data_path').value};
+const vol = document.querySelector('[name=volume_path]');
+let timer;
+async function propose(which) {
+  const field = document.getElementById(which + '_data_path'), hint = document.getElementById(which + '_data_hint');
+  if (edited[which] || !slug.value) return;
+  const r = await fetch('/api/volume-vorschlag?server=' + document.getElementById(which + '_server').value
+    + '&name=' + encodeURIComponent(slug.value + '-' + which));
+  const j = await r.json();
+  if (j.ok && !edited[which]) { field.value = j.path; hint.textContent = j.hint; }
+}
+function proposeAll() { clearTimeout(timer); timer = setTimeout(() => { propose('test'); propose('prod'); }, 400); }
+for (const w of ['test', 'prod']) {
+  document.getElementById(w + '_data_path').addEventListener('input', () => edited[w] = true);
+  document.getElementById(w + '_server').addEventListener('change', () => { edited[w] = false; propose(w); });
+}
+name.addEventListener('input', proposeAll); slug.addEventListener('input', proposeAll);
+function toggleData() { document.querySelectorAll('.datafield').forEach(el => el.style.display = vol.value.trim() ? '' : 'none'); }
+vol.addEventListener('input', toggleData); toggleData(); proposeAll();
+const ports = {python: 8000, node: 3000, static: 8080};
+const tpl = document.getElementById('template'), cport = document.getElementById('cport');
+tpl.addEventListener('change', () => {
+  if (Object.values(ports).map(String).includes(cport.value) || !cport.value) cport.value = ports[tpl.value];
+});
+</script>
+{% endblock %}

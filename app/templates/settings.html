@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Einstellungen</h1>
+
+<div class="panel">
+  <div class="row"><h2 style="margin:0">Docker-Server (Portainer)</h2><span class="spacer"></span><a class="btn secondary" href="/server/neu">Server hinzufügen</a></div>
+  {% if servers %}
+  <table style="margin-top:8px">
+    <tr><th>Name</th><th>Portainer</th><th>Umgebung</th><th>Adresse für den Proxy</th><th></th></tr>
+    {% for s in servers %}
+    <tr><td><strong>{{ s.name }}</strong></td><td class="small">{{ s.url }}</td><td>{{ s.endpoint_id }}</td><td>{{ s.host }}</td>
+      <td style="text-align:right"><a href="/server/{{ s.id }}">Bearbeiten</a></td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Noch kein Server eingetragen. Trage Docker 1 und Docker 2 ein – beim Projekt wählst du dann, welcher Test und welcher Produktiv ist.</p>
+  {% endif %}
+</div>
+
+<div class="panel row">
+  <div><h2 style="margin:0 0 4px">Diese App selbst</h2>
+  <span class="muted small">Eigenes GitHub-Repository und Portainer-Stack für die Deploy-Automatik – danach kommen Updates wie bei den anderen Apps über Freigaben.</span></div>
+  <span class="spacer"></span><a class="btn secondary" href="/selbst">Einrichten</a>
+</div>
+
+<div class="grid2">
+<form class="panel" method="post">
+  <input type="hidden" name="section" value="github">
+  <h2>GitHub</h2>
+  <label>Zugangstoken</label>
+  <input type="password" name="github_token" placeholder="{{ '•••••••• gespeichert – leer lassen zum Behalten' if s.has_token else 'ghp_…' }}" autocomplete="off">
+  <div class="hint">Klassisches Token mit den Rechten <code>repo</code>, <code>workflow</code>, <code>write:packages</code>
+    (<a href="https://github.com/settings/tokens/new?scopes=repo,workflow,write:packages&description=Deploy-Automatik" target="_blank">hier anlegen</a>).</div>
+  <label>Besitzer der Repositories</label>
+  <input name="github_owner" value="{{ s.github_owner }}" placeholder="leer = dein Benutzer">
+  <div class="hint">Dein Benutzername oder eine Organisation.</div>
+  <p><button>Speichern und prüfen</button></p>
+</form>
+
+<form class="panel" method="post">
+  <input type="hidden" name="section" value="npm">
+  <h2>Nginx Proxy Manager</h2>
+  <label>Adresse</label>
+  <input name="npm_url" value="{{ s.npm_url }}" placeholder="http://192.168.1.20:81">
+  <div class="grid2" style="gap:12px">
+    <div><label>Anmelde-E-Mail</label><input name="npm_email" value="{{ s.npm_email }}"></div>
+    <div><label>Passwort</label><input type="password" name="npm_password" placeholder="{{ '•••••••• gespeichert' if s.has_npm_password else '' }}" autocomplete="off"></div>
+  </div>
+  <label>SSL-Zertifikat für neue Proxy-Hosts</label>
+  <select name="npm_certificate">
+    <option value="new" {{ 'selected' if (s.npm_certificate or 'new') == 'new' }}>Neues Let's-Encrypt-Zertifikat je Domain</option>
+    {% for c in certs %}<option value="{{ c.id }}" {{ 'selected' if s.npm_certificate == c.id|string }}>Vorhandenes: {{ c.name }}</option>{% endfor %}
+    <option value="" {{ 'selected' if s.npm_certificate == '' }}>Ohne SSL</option>
+  </select>
+  {% if cert_error %}<div class="hint" style="color:var(--err)">{{ cert_error }}</div>{% endif %}
+  <label>E-Mail für Let's Encrypt</label>
+  <input name="npm_le_email" value="{{ s.npm_le_email }}">
+  <div class="hint">Die App legt normale Proxy-Hosts an (Domain, Ziel, SSL) – nichts unter „Erweitert“. Du kannst sie danach ganz normal im Proxy Manager bearbeiten.</div>
+  <p><button>Speichern und prüfen</button></p>
+</form>
+</div>
+{% endblock %}

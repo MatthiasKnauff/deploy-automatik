@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Deploy-Automatik über GitHub aktualisieren</h1>
+<div class="panel">
+  <p style="margin-top:0">Die App legt für sich selbst ein Repository mit derselben Pipeline an und startet sich danach als Portainer-Stack neu.
+  Ab dann kommt jede neue Version über eine Freigabe in GitHub – wie bei den anderen Apps.</p>
+  <ol class="small muted">
+    <li>Repository mit dem laufenden Programmcode und der Pipeline anlegen, ersten Build abwarten</li>
+    <li>Die laufende Version als erste Freigabe v{{ APP_VERSION }} eintragen (es ändert sich nichts am Programm)</li>
+    <li>Umstieg: alte Instanz anhalten, deine Daten (Zugänge, Projekte) in den Datenordner kopieren, als Stack neu starten</li>
+  </ol>
+  <p class="small muted" style="margin-bottom:0">Die Oberfläche ist beim Umstieg etwa eine Minute weg. Klappt der Stack nicht, startet die alte Instanz automatisch wieder.
+  Der alte Container bleibt angehalten als „deploy-automatik-alt“ stehen, bis du ihn löschst.</p>
+</div>
+<form method="post" class="panel" style="max-width:620px">
+  <label>Repository</label>
+  <div class="row" style="flex-wrap:nowrap"><span class="muted">{{ owner }}/</span><input name="slug" value="{{ f.get('slug','deploy-automatik') }}"></div>
+  <label>Docker-Server, auf dem diese App gerade läuft</label>
+  <select name="server" id="server">
+    {% for s in servers %}<option value="{{ s.id }}" {{ 'selected' if f.get('server') == s.id|string }}>{{ s.name }} ({{ s.host }})</option>{% endfor %}
+  </select>
+  <label>Port</label>
+  <input name="port" value="{{ f.get('port','8095') }}" inputmode="numeric">
+  <label>Datenordner auf dem Server</label>
+  <input name="data_path" id="data_path" value="{{ f.get('data_path','') }}">
+  <div class="hint" id="hint">Wird nach dem Schema des Servers vorgeschlagen.</div>
+  <label>Sichtbarkeit</label>
+  <div class="row">
+    <label class="check"><input type="radio" name="visibility" value="public" {{ 'checked' if f.get('visibility','public') == 'public' }}> öffentlich</label>
+    <label class="check"><input type="radio" name="visibility" value="private" {{ 'checked' if f.get('visibility') == 'private' }}> privat</label>
+  </div>
+  <p><button>Einrichten und umsteigen</button></p>
+</form>
+<script>
+const field = document.getElementById('data_path'); let edited = !!field.value;
+field.addEventListener('input', () => edited = true);
+async function propose() {
+  if (edited) return;
+  const j = await (await fetch('/api/volume-vorschlag?server=' + document.getElementById('server').value + '&name=deploy-automatik')).json();
+  if (j.ok && !edited) { field.value = j.path; document.getElementById('hint').textContent = j.hint; }
+}
+document.getElementById('server').addEventListener('change', () => { edited = false; propose(); });
+propose();
+</script>
+{% endblock %}
