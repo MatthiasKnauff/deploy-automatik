@@ -1,7 +1,7 @@
 # Deploy-Automatik selbst – Image trägt die Pipeline ein, Port und Datenordner kommen aus dem Portainer-Stack.
 services:
   deploy-automatik:
-    image: ghcr.io/matthiasknauff/deploy-automatik:test-65dca9a
+    image: ghcr.io/matthiasknauff/deploy-automatik:test-d6bd4ae
     container_name: deploy-automatik
     restart: unless-stopped
     ports:
