@@ -296,6 +296,9 @@ class ProxyManager:
                 return h
         return None
 
+    def delete_host(self, host_id):
+        self._req("DELETE", f"/api/nginx/proxy-hosts/{host_id}", ok=(200, 204, 404))
+
     def create_host(self, domain, forward_host, forward_port, certificate, le_email):
         """Normaler Proxy-Host – alles in den Standardfeldern, nichts unter „Erweitert“.
 

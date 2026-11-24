@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ p.name }} – Domains</h1>
+<form method="post" class="panel" style="max-width:620px">
+  {% for w in envs %}
+  <label class="{{ 'tag-test' if w == 'test' else 'tag-prod' }}">{{ 'Testserver' if w == 'test' else 'Produktivserver' }} · {{ d[w].server_name }} :{{ d[w].host_port }}</label>
+  <input name="{{ w }}_domain" value="{{ d[w].domain or '' }}" placeholder="{{ 'zuhause-test.knauff.info' if w == 'test' else 'zuhause.knauff.info' }}">
+  {% endfor %}
+  <div class="hint">Neue Domain: die App legt einen normalen Proxy-Host an. Geänderte Domain: neuer Proxy-Host, der bisherige (von der App angelegte) wird entfernt. Leer: Proxy-Host wird entfernt.
+  Beim Produktivserver passiert das erst, wenn er eingerichtet ist (nach der ersten Freigabe).</div>
+  <p class="row"><button>Speichern und einrichten</button> <a href="/projekt/{{ p.id }}">Abbrechen</a></p>
+</form>
+{% endblock %}

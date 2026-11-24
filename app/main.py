@@ -259,6 +259,40 @@ def project_retry(pid):
     return redirect(url_for("project", pid=pid))
 
 
+@app.route("/projekt/<int:pid>/bearbeiten", methods=["GET", "POST"])
+@login_required
+def project_edit(pid):
+    p = db.project(pid)
+    if not p:
+        return redirect("/")
+    d = p["data"]
+    envs = [w for w in ("test", "prod") if d.get(w)]
+    if request.method == "POST":
+        if runner.is_running(pid):
+            flash("Die Einrichtung läuft gerade – bitte kurz warten.", "fehler")
+            return redirect(url_for("project_edit", pid=pid))
+        changed = []
+        for w in envs:
+            dom = re.sub(r"^https?://", "", request.form.get(f"{w}_domain", "").strip().lower()).rstrip("/")
+            if dom and not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", dom):
+                flash(f"Domain „{dom}“ ungültig.", "fehler")
+                return redirect(url_for("project_edit", pid=pid))
+            if dom != (d[w].get("domain") or ""):
+                d[w]["domain"] = dom
+                changed.append(w)
+        if not changed:
+            flash("Nichts geändert.", "ok")
+            return redirect(url_for("project", pid=pid))
+        db.update_project_data(pid, **{w: d[w] for w in changed})
+        for w in changed:
+            db.set_step(pid, f"{w}_proxy", "offen", "")
+            label = "Test" if w == "test" else "Produktiv"
+            db.add_log(pid, f"{label}: Domain geändert auf {d[w]['domain'] or '– (keine)'}")
+        runner.start(pid)
+        return redirect(url_for("project", pid=pid))
+    return render_template("edit.html", p=p, d=d, envs=envs)
+
+
 @app.post("/projekt/<int:pid>/entfernen")
 @login_required
 def project_delete(pid):

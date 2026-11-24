@@ -18,10 +18,10 @@ STEPS = [
     ("files", "GitHub: Startprogramm, Dockerfile und Pipeline hochladen"),
     ("actions", "GitHub: Schreibrechte für die Pipeline setzen"),
     ("build", "GitHub: ersten Build abwarten"),
-    ("test_stack", "Testserver: Datenordner und Portainer-Stack anlegen"),
+    ("test_stack", "Testserver: Portainer-Stack anlegen"),
     ("test_proxy", "Testserver: Proxy-Host anlegen"),
     ("release", "Auf erste Freigabe (Release) warten"),
-    ("prod_stack", "Produktivserver: Datenordner und Portainer-Stack anlegen"),
+    ("prod_stack", "Produktivserver: Portainer-Stack anlegen"),
     ("prod_proxy", "Produktivserver: Proxy-Host anlegen"),
 ]
 
@@ -293,26 +293,37 @@ def _stack(c, which):
 
 
 def _proxy(c, which):
+    """Proxy-Host anlegen – auch nachträglich: neue Domain wird angelegt, die bisherige (von der App angelegte) entfernt."""
     e, srv = c.env(which)
-    if not e.get("domain"):
-        raise Skip("keine Domain angegeben")
-    if c.p.get(f"{which}_proxy_id"):
+    key_id, key_dom = f"{which}_proxy_id", f"{which}_proxy_domain"
+    old_id, old_dom = c.p.get(key_id), c.p.get(key_dom)
+    if old_id and old_dom == e.get("domain"):
         raise Skip("schon angelegt")
+    if not e.get("domain") and not old_id:
+        raise Skip("keine Domain angegeben")
     npm = c.npm()
-    existing = npm.find_host(e["domain"])
-    if existing:
-        if existing.get("forward_host") == srv["host"] and int(existing.get("forward_port", 0)) == int(e["host_port"]):
-            c.save(**{f"{which}_proxy_id": existing["id"]})
-            return f"{e['domain']} war schon richtig eingetragen"
-        raise ApiError(f"{e['domain']} zeigt im Proxy Manager schon auf "
-                       f"{existing.get('forward_host')}:{existing.get('forward_port')}.")
-    cert = db.get_setting("npm_certificate", "new")
-    host, note = npm.create_host(e["domain"], srv["host"], e["host_port"], cert, db.get_setting("npm_le_email"))
-    c.save(**{f"{which}_proxy_id": host.get("id")})
-    if note:
-        c.log(note)
-        return f"{e['domain']} → {srv['host']}:{e['host_port']} (ohne SSL, siehe Protokoll)"
-    return f"{e['domain']} → {srv['host']}:{e['host_port']}"
+    result = "Domain entfernt"
+    if e.get("domain"):
+        existing = npm.find_host(e["domain"])
+        if existing:
+            if existing.get("forward_host") != srv["host"] or int(existing.get("forward_port", 0)) != int(e["host_port"]):
+                raise ApiError(f"{e['domain']} zeigt im Proxy Manager schon auf "
+                               f"{existing.get('forward_host')}:{existing.get('forward_port')}.")
+            new_id, result = existing["id"], f"{e['domain']} war schon richtig eingetragen"
+        else:
+            cert = db.get_setting("npm_certificate", "new")
+            host, note = npm.create_host(e["domain"], srv["host"], e["host_port"], cert, db.get_setting("npm_le_email"))
+            new_id, result = host.get("id"), f"{e['domain']} → {srv['host']}:{e['host_port']}"
+            if note:
+                c.log(note)
+                result += " (ohne SSL, siehe Protokoll)"
+    else:
+        new_id = None
+    if old_id and old_id != new_id:
+        npm.delete_host(old_id)
+        c.log(f"Bisherigen Proxy-Host {old_dom or old_id} entfernt")
+    c.save(**{key_id: new_id, key_dom: e.get("domain") or None})
+    return result
 
 
 def step_release(c):

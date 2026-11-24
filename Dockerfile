@@ -3,7 +3,7 @@ WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-ARG APP_VERSION=1.2.1
+ARG APP_VERSION=1.2.2
 ENV APP_VERSION=$APP_VERSION DATA_DIR=/data SOURCE_DIR=/srv PYTHONUNBUFFERED=1
 VOLUME /data
 EXPOSE 8000
