@@ -1,0 +1,21 @@
+# Deploy-Automatik selbst – Image trägt die Pipeline ein, Port und Datenordner kommen aus dem Portainer-Stack.
+services:
+  deploy-automatik:
+    image: ghcr.io/matthiasknauff/deploy-automatik:test-e7cc134
+    container_name: deploy-automatik
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT}:8000"
+    environment:
+      TZ: Europe/Berlin
+    volumes:
+      - daten:/data
+
+volumes:
+  daten:
+    name: ${VOLUME_NAME}
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH}
